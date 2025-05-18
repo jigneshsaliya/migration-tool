@@ -1,0 +1,4 @@
+Directory: code/kitchensink
+Files analyzed: 28
+
+Estimated tokens: 47.1k

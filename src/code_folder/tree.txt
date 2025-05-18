@@ -1,0 +1,63 @@
+Directory structure:
+└── kitchensink/
+    ├── README-source.adoc
+    ├── README.adoc
+    ├── README.html
+    ├── pom.xml
+    ├── .cheatsheet.xml
+    ├── charts/
+    │   └── helm.yaml
+    └── src/
+        ├── main/
+        │   ├── java/
+        │   │   └── org/
+        │   │       └── jboss/
+        │   │           └── as/
+        │   │               └── quickstarts/
+        │   │                   └── kitchensink/
+        │   │                       ├── controller/
+        │   │                       │   └── MemberController.java
+        │   │                       ├── data/
+        │   │                       │   ├── MemberListProducer.java
+        │   │                       │   └── MemberRepository.java
+        │   │                       ├── model/
+        │   │                       │   └── Member.java
+        │   │                       ├── rest/
+        │   │                       │   ├── JaxRsActivator.java
+        │   │                       │   └── MemberResourceRESTService.java
+        │   │                       ├── service/
+        │   │                       │   └── MemberRegistration.java
+        │   │                       └── util/
+        │   │                           └── Resources.java
+        │   ├── resources/
+        │   │   ├── import.sql
+        │   │   └── META-INF/
+        │   │       └── persistence.xml
+        │   └── webapp/
+        │       ├── index.html
+        │       ├── index.xhtml
+        │       ├── WEB-INF/
+        │       │   ├── beans.xml
+        │       │   ├── faces-config.xml
+        │       │   ├── kitchensink-quickstart-ds.xml
+        │       │   └── templates/
+        │       │       └── default.xhtml
+        │       └── resources/
+        │           ├── css/
+        │           │   └── screen.css
+        │           └── gfx/
+        └── test/
+            ├── java/
+            │   └── org/
+            │       └── jboss/
+            │           └── as/
+            │               └── quickstarts/
+            │                   └── kitchensink/
+            │                       └── test/
+            │                           ├── MemberRegistrationIT.java
+            │                           └── RemoteMemberRegistrationIT.java
+            └── resources/
+                ├── arquillian.xml
+                ├── test-ds.xml
+                └── META-INF/
+                    └── test-persistence.xml
