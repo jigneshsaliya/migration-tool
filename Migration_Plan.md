@@ -4,382 +4,387 @@
 
 ## Migration Plan
 
-Certainly! Here is a **detailed migration plan** (suitable for a README.md file) for converting the given Java EE kitchensink project running on JBoss EAP + relational database to a **Spring Boot + MongoDB** stack. This guide is targeted at Java developers experienced with enterprise apps who want to modernize their codebase.
+Certainly! Here is a detailed migration plan (in markdown format) for migrating the given **kitchensink** Java EE/Jakarta EE (JBoss EAP, JPA/H2, JSF, REST, CDI, Bean Validation) project to a modern **Spring Boot** application with **MongoDB** as database (running Java 21, with latest Spring Boot).
 
 ---
 
-# Migration Plan: From JBoss EAP/Java EE Kitchensink to Spring Boot + MongoDB
+# Migration Plan: kitchensink Project to Spring Boot + MongoDB
 
-This document outlines how to migrate the kitchensink project from a traditional Jakarta EE (JBoss EAP, JSF, JAX-RS, CDI, JPA, EJB, H2 DB) stack to the modern Spring Boot ecosystem, using MongoDB as the persistence layer. This plan assumes the latest LTS Java (21) and the latest Spring Boot release.
+## Table of Contents
+
+1. [Set up a new Spring Boot project](#setup)
+2. [Migrate Java classes to Spring Boot components](#migrate-components)
+3. [Migrate from Relational DB to MongoDB](#migrate-db)
+4. [Update configurations](#config)
+5. [Build Process](#build)
+6. [Testing Considerations](#test)
+7. [Additional Notes](#notes)
+
+
+---
+
+<a name="setup"></a>
+## 1. Set up a New Spring Boot Project
+
+**a. Generate a new Spring Boot project skeleton:**
+
+- Use [Spring Initializr](https://start.spring.io/) or your favorite IDE:
+  - **Language:** Java
+  - **Java Version:** 21
+  - **Spring Boot Version:** Latest stable (e.g., 3.2.x)
+  - **Packaging:** Jar (or War if JSF is needed, but recommended to move to pure REST and modern UI)
+  - **Dependencies:**
+    - Spring Web
+    - Spring Data MongoDB
+    - Spring Validation
+    - Lombok (optional, for reduced boilerplate)
+    - (Optionally, Spring Boot DevTools for development)
+    - JUnit, Mockito for testing
+
+**b. Folder structure:**
+
+```
+tool/
+ ├── src/main/java/com/example/kitchensink/
+ │    ├── controller/
+ │    ├── model/
+ │    ├── repository/
+ │    ├── service/
+ │    └── ... (others as needed)
+ ├── src/test/java/com/example/kitchensink/
+ │    └── ...
+ ├── src/main/resources/
+ │    ├── application.properties
+ │    └── ...
+ └── pom.xml
+```
+
+**c. Replace `org.jboss.as.quickstarts.kitchensink` package with `com.example.kitchensink`** (or appropriate).
+
+---
+
+<a name="migrate-components"></a>
+## 2. Migrate Existing Java Classes to Spring Boot Components
+
+Map the old Java EE constructs to Spring Boot concepts:
+
+| Java EE Component | New Spring Boot Equivalent     |
+|-------------------|-------------------------------|
+| @Entity           | @Document (Spring Data Mongo) |
+| @Stateless, CDI   | @Service/@Component etc.      |
+| @Inject           | @Autowired/@Inject            |
+| JPA Repository    | MongoRepository (Spring Data) |
+| @RequestScoped    | Stateless beans (default)     |
+| JSF Controllers   | @RestController or @Controller|
+| JAX-RS @Path      | @RequestMapping/@GetMapping   |
+| Bean Validation   | Spring's @Valid/@Validated    |
+
+**Migration mapping for this project:**
+
+### a. Model: `Member`
+
+- Convert `@Entity` to `@Document(collection="members")`
+- MongoDB uses `_id`, map it to existing `id` field.
+- Bean validation annotations largely remain the same.
+- Remove any JPA/Hibernate imports and use `org.springframework.data.annotation.Id` etc.
+
+### b. Repository Layer
+
+- Replace custom DAO/repository code with a Spring Data MongoDB interface:
+
+    ```java
+    public interface MemberRepository extends MongoRepository<Member, String> {
+        Optional<Member> findByEmail(String email);
+        List<Member> findAllByOrderByNameAsc();
+    }
+    ```
+    - Use `String` or `ObjectId` as id type in MongoDB (adjust in model class).
+
+### c. Service Layer
+
+- `MemberRegistration`: Recreate as a Spring `@Service` class.
+- Move persistence logic to use MongoRepository methods instead of JPA `EntityManager`.
+- Fire events using Spring Application Events if needed (for list refresh, or just update the list after `.save()`).
+
+### d. Controller Layer
+
+- `MemberController` (JSF Managed Bean):  
+  - If the UI is being rebuilt (as a SPA or using Thymeleaf), create corresponding REST endpoints and/or web controller methods.
+  - For REST: Use `@RestController`. For each endpoint in the original JAX-RS resource, create an equivalent Spring method:
+
+    ```java
+    @RestController
+    @RequestMapping("/api/members") // e.g. /api/members
+    public class MemberRestController {
+      // GET, POST etc. as per MemberResourceRESTService
+    }
+    ```
+
+- For web interface:
+  - Migrate to Thymeleaf or React/Vue SPA. If Thymeleaf: use `@Controller` and return `.html` templates.
+  - If keeping JSF: Consider running it in a legacy/bridge mode, but preferred is to migrate to REST + modern JS UI.
+
+### e. Bean Validation
+
+- All validation annotations mostly stay the same.  
+- Use `@Valid` on controller method parameters to enable validation.
+
+### f. Logging
+
+- Use `org.slf4j.Logger` with Spring's logging configuration.
+
+---
+
+<a name="migrate-db"></a>
+## 3. Migrating from Relational Database (JPA/H2) to MongoDB
+
+**a. Entities (`@Entity` → `@Document`)**
+  - Replace all JPA annotations with corresponding Spring Data MongoDB ones.
+  - Use `@Document(collection="members")`.
+  - Change `@Id @GeneratedValue` to use `@Id` (Spring Data) and let MongoDB auto-create `_id`.
+
+**b. Database constraints & migrations**
+  - MongoDB does NOT enforce schema or unique constraints by default.
+  - Programmatically check for uniqueness (e.g., for email), or define a unique index (see [Mongo Indexes](https://docs.mongodb.com/manual/indexes/)).
+  - Remove all JPA-related configurations, SQL scripts, DDL files, and the `persistence.xml`.
+
+**c. Repository Query Adjustments**
+  - All JPA queries become simple repository methods (Spring Data MongoDB will auto-implement queries by method name).
+  - Manual queries for sorting, or uniqueness checks, should be implemented as custom methods in the Spring Data repository.
+
+**d. Seed Data**
+  - Migrate `import.sql` to a CommandLineRunner bean or use MongoDB's data initialization features.
+  - Example:  
+    ```java
+    @Component
+    public class DataLoader implements CommandLineRunner {
+      private final MemberRepository repo;
+      public DataLoader(MemberRepository repo) { this.repo = repo; }
+      public void run(String... args) {
+        if (repo.count() == 0) {
+          repo.save(new Member(...));
+        }
+      }
+    }
+    ```
+
+---
+
+<a name="config"></a>
+## 4. Necessary Configuration Changes
+
+**a. Remove JPA and datasource configuration files:**
+  - Delete `persistence.xml`, `kitchensink-quickstart-ds.xml`, and related files.
+
+**b. Add MongoDB configuration to `application.properties`:**
+
+  ```properties
+  # MongoDB connection
+  spring.data.mongodb.uri=mongodb://localhost:27017/kitchensink
+  spring.data.mongodb.database=kitchensink
+  ```
+
+  - Adjust host/db/credentials as appropriate.
+  - Remove any references to JPA and Hibernate properties.
+  - Set server port and context path if needed.
+
+**c. Other Spring Boot Config:**
+
+  - Set `server.port` and `server.servlet.context-path` if needed.
+  - Configure `spring.jackson` options if customizing JSON format.
+
+**d. Validation Messages:**
+  - Place in `messages.properties` in `src/main/resources` if used.
+
+---
+
+<a name="build"></a>
+## 5. Build Process
+
+- Use **Maven** or **Gradle** (Maven generally easier for migration):
+  - The pom.xml will reference Spring Boot and dependencies instead of old JBoss-centric BOMs.
+- Use Spring Boot Maven Plugin for building and running:
+
+  ```xml
+  <plugin>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-maven-plugin</artifactId>
+    <version>3.2.x</version>
+  </plugin>
+  ```
+
+- Typical build/run commands:
+  ```
+  mvn clean spring-boot:run
+  mvn test
+  ```
+
+---
+
+<a name="test"></a>
+## 6. Testing Considerations
+
+**a. Unit/integration tests:**  
+- Use JUnit 5 (default in Spring Boot).
+- Replace Arquillian with standard Spring Boot test infrastructure (`@SpringBootTest`, `@DataMongoTest`, `@WebMvcTest`, etc.).
+- Mock MVC for REST endpoint testing.
+- Use [embedded MongoDB](https://github.com/flapdoodle-oss/de.flapdoodle.embed.mongo) for integration tests.
+- Migrate tests:
+  - Unit tests are similar (change DI to Spring `@Autowired`).
+  - Tests that deploy to JBoss EAP with Arquillian: Rewrite as `@SpringBootTest` or mock MVC tests.
+
+**b. Remove all Arquillian and JBoss EAP test configs/files**.
+
+---
+
+<a name="notes"></a>
+## 7. Additional Notes & Suggestions
+
+- **Frontend:** Migrate JSF pages (`.xhtml`) to Thymeleaf templates, or separate Single Page Application (React/Vue/Angular), consuming your new REST endpoints.
+- **CDI, EJB, JPA:** All are replaced by Spring's DI, Service, Repository abstractions, and MongoDB as the data source.
+- **Events:** Use Spring's ApplicationEvents if you need to broadcast domain events.
+- **Validation:** Spring Boot will handle bean validation and validation messages on REST endpoints natively.
+- **Deployment:** Spring Boot apps are stand-alone jars (no need to deploy to JBoss/Wildfly); simply execute `java -jar <app>.jar`.
+- **Dockerization:** Optionally, create Dockerfiles for both the Spring Boot app and MongoDB for easy cloud deployment.
+
+---
+
+## Example: Member Entity Before and After
+
+**Before (JPA):**
+```java
+@Entity
+@XmlRootElement
+@Table(uniqueConstraints = @UniqueConstraint(columnNames = "email"))
+public class Member implements Serializable {
+    @Id @GeneratedValue private Long id;
+    // ...
+}
+```
+
+**After (Spring Data MongoDB):**
+```java
+@Document(collection = "members")
+public class Member {
+    @Id private String id; // OR private ObjectId id;
+    // add @Indexed(unique=true) on email if needed
+    // ...
+}
+```
+
+---
+
+## Example: Member REST Controller
+
+```java
+@RestController
+@RequestMapping("/api/members")
+public class MemberRestController {
+    private final MemberRepository repo;
+    // Constructor injection
+
+    @GetMapping
+    public List<Member> listAll() {
+        return repo.findAllByOrderByNameAsc();
+    }
+    @GetMapping("/{id}")
+    public ResponseEntity<Member> get(@PathVariable String id) {
+        return repo.findById(id)
+                   .map(ResponseEntity::ok)
+                   .orElse(ResponseEntity.notFound().build());
+    }
+    @PostMapping
+    public ResponseEntity<?> create(@RequestBody @Valid Member member, BindingResult result) {
+        if (repo.findByEmail(member.getEmail()).isPresent()) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("email", "Email taken"));
+        }
+        var saved = repo.save(member);
+        return ResponseEntity.ok(saved);
+    }
+}
+```
+
+---
+
+# Final Steps & Checklist
+
+- [ ] Generate new Spring Boot project skeleton.
+- [ ] Migrate model, repository, and service classes.
+- [ ] Migrate REST API endpoints, adjust to RESTful standards if possible.
+- [ ] Migrate validation logic.
+- [ ] Remove all JPA/EE/Hibernate artifacts and descriptors.
+- [ ] Implement MongoDB repository and migration of data loading.
+- [ ] Update properties to use MongoDB.
+- [ ] Re-create tests using Spring Boot test features.
+- [ ] Update or replace UI as appropriate.
+- [ ] Build and run application using Spring Boot.
+
+---
+
+**You should now have a fully-functional Spring Boot + MongoDB application, with the business logic and API surface modernized for easier deployment and cloud-readiness.**
+
+## Suggested MongoDB Schema
+
+```markdown
+# Migrating Kitchensink Application to Spring Boot & MongoDB
+
+This document provides a **detailed plan, MongoDB schema design, and technical steps to migrate** the Kitchensink application (originally Java/Jakarta EE + RDBMS on JBoss EAP) to **Spring Boot (Java 21)** with **MongoDB** as the new database backend.
 
 ---
 
 ## Table of Contents
 
-1. [Set Up New Spring Boot Project](#1-set-up-new-spring-boot-project)
-2. [Migrate Java Classes to Spring Boot](#2-migrate-java-classes-to-spring-boot)
-3. [Switch from Relational Database to MongoDB](#3-switch-from-relational-database-to-mongodb)
-4. [Required Configuration Changes](#4-required-configuration-changes)
-5. [Updating the Build Process](#5-updating-the-build-process)
-6. [Testing Considerations](#6-testing-considerations)
-7. [Miscellaneous Notes and Recommendations](#7-miscellaneous-notes-and-recommendations)
+1. [Overview](#overview)
+2. [Key Java Artifacts to Change for MongoDB Migration](#1-key-java-artifacts-to-change)
+3. [MongoDB Schema Design](#2-mongodb-schema-design)
+   - [Document Structures (with Example JSON)](#document-structures)
+   - [Embedded vs Referenced Documents](#embedded-vs-referenced-documents)
+   - [Indexes and Indexing Recommendations](#indexing-recommendations)
+   - [Data Transformation](#data-transformation)
+4. [Spring Boot Integration Steps](#3-spring-boot-integration-steps)
+5. [MongoDB Dependencies](#4-mongodb-dependencies)
+6. [MongoDB Initialization Script](#5-mongodb-initialization-script)
+7. [Testing Strategy](#6-testing-strategy)
+8. [Summary Table: Old vs. New](#7-summary-table-old-vs-new)
 
 ---
-
-## 1. Set Up New Spring Boot Project
-
-**a. Create a new Project (Recommended: Maven):**
-- Use [Spring Initializr](https://start.spring.io/)
-  - Project: Maven
-  - Java: 21
-  - Dependencies:
-    - Spring Web (REST API)
-    - Spring Data MongoDB
-    - Spring Boot DevTools (optional, for development)
-    - Spring Validation
-    - Lombok (optional, if you want to reduce boilerplate)
-    - Thymeleaf (only if replacing JSF with a template engine; otherwise, ignore for pure API)
-    - Test: JUnit, Spring Boot Starter Test
-- Set group and artifact IDs accordingly (e.g., `org.yourorg.kitchensink`).
-
-**b. Directory structure:**
-```plaintext
-src/
-  main/
-    java/org/yourorg/kitchensink
-      controller/
-      data/
-      model/
-      service/
-      rest/
-      ...
-    resources/
-      application.yml (or .properties)
-  test/
-    java/org/yourorg/kitchensink/
-```
-
----
-
-## 2. Migrate Java Classes to Spring Boot
-
-### a. Entities → MongoDB Documents
-
-- `Member` in `model/Member.java`
-  - Replace all `@Entity`/`@Table` annotations with Spring Data MongoDB annotations.
-  - Use `@Document(collection="members")`.
-  - Replace `@Id`, `@GeneratedValue` as per Mongo conventions (String/ObjectId ids).
-  - Validation annotations (`@NotNull`, `@Size`, etc.) are still supported with Spring's bean validation.
-
-**Example:**
-```java
-@Document(collection = "members")
-public class Member {
-    @Id
-    private String id; // Mongo IDs are Strings (usually ObjectId)
-
-    @NotNull
-    @Size(min = 1, max = 25)
-    private String name;
-
-    @NotNull @Email
-    private String email;
-
-    @NotNull
-    @Size(min = 10, max = 12)
-    private String phoneNumber;
-
-    // getters & setters
-}
-```
-
-### b. Data Access Layer
-
-- JPA-based `MemberRepository` → Spring Data MongoDB Repository.
-- Extend `MongoRepository<Member, String>`. Spring Data provides CRUD operations out-of-the-box.
-- Custom queries use method naming conventions or `@Query` annotations.
-
-**Example:**
-```java
-@Repository
-public interface MemberRepository extends MongoRepository<Member, String> {
-    Optional<Member> findByEmail(String email);
-    List<Member> findAllByOrderByNameAsc();
-}
-```
-
-- Remove all uses of JPA's `EntityManager`, Criteria APIs, and persistence context.
-
-### c. Service Layer
-
-- `@Stateless` EJB (`MemberRegistration`) → `@Service`
-- For transactions (not needed for basic Mongo operations, but you can use `@Transactional` if needed).
-- Use constructor or field injection (`@Autowired`).
-- For event publication (CDI events): if required, use Spring's `ApplicationEventPublisher`/`@EventListener` (for now, you can simply call update logic directly unless you require decoupling).
-- Replace logger injection with SLF4J (`LoggerFactory.getLogger(this.getClass())`). Spring uses SLF4J by default.
-
-### d. Controller Layer
-
-- JSF managed beans (`@Model`, `@Named`, etc.) for forms → Spring MVC `@RestController` or `@Controller` classes.
-- JAX-RS REST endpoints → Spring `@RestController`
-    - Replace `@Path`, `@GET`, `@POST` etc. with `@RequestMapping`, `@GetMapping`, `@PostMapping`.
-    - Use validation: `@Valid` in method params.
-    - Error handling: Use `@ExceptionHandler`, `@ControllerAdvice` for global error handling.
-- FacesContext (JSF) messaging → standard web response messages/exceptions.
-
----
-
-## 3. Switch from Relational Database to MongoDB
-
-### a. Update Data Model:
-
-- Remove all SQL/JPA constructs and annotations not supported by MongoDB or Spring Data Mongo.
-- Replace `Long` IDs with `String` (MongoDB `ObjectId`). You can use custom IDs if needed.
-- Compound/unique constraints:
-  - MongoDB supports [unique indexes](https://docs.mongodb.com/manual/core/index-unique/), but you must create them via code or by configuring the collection.
-  - Email uniqueness: check in service before insert, or create unique index on `email`.
-
-### b. Replace Data Access Logic:
-
-- All queries switch from JPQL or Criteria API to MongoRepository methods.
-
-### c. Data Initialization:
-
-- `import.sql` is not supported with MongoDB.
-- Use `CommandLineRunner` or `data.mongodb.initialization.enabled` property and a `data.json` file for initial data, or a custom migration tool like [Mongock](https://mongock.io/).
-
----
-
-## 4. Required Configuration Changes
-
-### a. application.yml / application.properties
-
-- Remove JPA/Hibernate configs.
-- Add MongoDB configs:
-    ```yaml
-    spring:
-      data:
-        mongodb:
-          uri: mongodb://localhost:27017/kitchensink
-    ```
-    Or use username/password, etc., if needed.
-
-### b. Remove unnecessary descriptors
-
-- Remove JPA `persistence.xml`, `*-ds.xml` files, and old server-side descriptors.
-- `beans.xml`, `faces-config.xml` are not needed in Spring.
-- Any JSF configuration can be omitted unless you plan to migrate UI to Thymeleaf.
-
----
-
-## 5. Updating the Build Process
-
-### a. Maven
-
-- Remove all Java EE and JBoss-specific dependencies, BOMs, and plugins from `pom.xml`.
-- Add:
-  - `spring-boot-starter-parent`
-  - `spring-boot-starter-web`
-  - `spring-boot-starter-data-mongodb`
-  - `spring-boot-starter-validation`
-  - (optional) `spring-boot-starter-thymeleaf` if converting to Thymeleaf.
-- Use the Spring Boot Maven Plugin for easy build/run:
-  ```xml
-  <plugin>
-      <groupId>org.springframework.boot</groupId>
-      <artifactId>spring-boot-maven-plugin</artifactId>
-  </plugin>
-  ```
-- The project can be run with `mvn spring-boot:run`.
-
-### b. Remove EAR/WAR packaging (unless you plan to deploy to a servlet container):
-
-- Prefer `jar` and embedded Tomcat (default in Spring Boot).
-- If WAR is required, configure as per [Spring Boot WAR deployment](https://docs.spring.io/spring-boot/docs/current/reference/html/deployment.html#deployment.war).
-
----
-
-## 6. Testing Considerations
-
-- Replace Arquillian and container-based tests with Spring Boot's integration and slice tests using JUnit 5 (Spring Boot Starter Test).
-- Use embedded MongoDB for tests (e.g., [flapdoodle-embedded-mongo](https://github.com/flapdoodle-oss/de.flapdoodle.embed.mongo)) or testcontainers for integration tests.
-- Migrate REST test clients to use Spring's `MockMvc` or WebTestClient.
-- Any UI tests (JSF) should be rewritten for new UI layers or omitted if only a REST API is provided.
-
----
-
-## 7. Miscellaneous Notes and Recommendations
-
-- **UI Layer:**
-  - If you migrate web front-end, consider using React/Vue/Angular (SPA) or a Spring Boot-friendly template engine like Thymeleaf or Freemarker (if you want to retain server-side rendering in Java).
-  - There is no direct, easy JSF-equivalent in Spring; **do not attempt to migrate JSF pages as-is**.
-
-- **Validation:**
-  - Bean Validation annotations are supported via Spring's validation starter (JSR-380/JSR-303).
-  - For REST endpoints, add `@Valid` to your input DTOs.
-
-- **Event System:** 
-  - Spring’s `ApplicationEventPublisher` can be used for events formerly implemented via CDI's `@Event`.
-  - For simple update notifications, you may not need this.
-
-- **Logging:** 
-  - Use SLF4J/Logback—Spring sets this up for you.
-
-- **REST API paths:** 
-  - JAX-RS `/rest/members` becomes Spring Boot `/api/members` (suggest changing the base path to `/api` for clarity, but `/rest` is fine for migration).
-
-- **Dependency Injection:** 
-  - Continue using `@Service`, `@Repository`, `@Component`, and `@Autowired`.
-  - No need for explicit `@Produces` or `@Named`; use constructor/final field injection when possible.
-
-- **Transactions:** 
-  - For MongoDB, transactions are rarely needed as most operations are atomic; use `@Transactional` only if doing multi-document transactions (requires replica set).
-
-- **Unique constraints:** 
-  - Ensure you add a MongoDB unique index for the `email` field (can use a CommandLineRunner on startup, or create manually in DB):
-    ```java
-    @Component
-    public class MongoIndexCreator implements CommandLineRunner {
-        private final MongoTemplate mongoTemplate;
-        public MongoIndexCreator(MongoTemplate mongoTemplate) { this.mongoTemplate = mongoTemplate; }
-        @Override
-        public void run(String... args) {
-            mongoTemplate.indexOps(Member.class)
-                .ensureIndex(new Index().on("email", Direction.ASC).unique());
-        }
-    }
-    ```
-- **Initial Data:** 
-  - For import data, use a Java-based initializer or `data.json` placed in `src/main/resources`.
-
----
-
-## References
-
-- [Spring Boot Reference Guide](https://docs.spring.io/spring-boot/docs/current/reference/html/application-properties.html)
-- [Spring Data MongoDB Documentation](https://docs.spring.io/spring-data/mongodb/docs/current/reference/html/)
-- [Upgrading to Spring Boot](https://spring.io/guides/gs/spring-boot/)
-- [Migrating from Java EE to Spring Boot](https://reflectoring.io/java-ee-to-spring/)
-- [Spring Boot Testing](https://docs.spring.io/spring-boot/docs/current/reference/html/features.html#features.testing)
-
----
-
-## Sample Mapping Table
-
-|  Java EE Technology | Spring Boot Equivalent      | Notes                                                              |
-|---------------------|----------------------------|--------------------------------------------------------------------|
-| JAX-RS (`@Path`)    | Spring MVC (`@RestController/@RequestMapping`) | Migrate REST endpoints          |
-| JPA + Entities      | Spring Data MongoDB        | Use @Document, remove RDB-specific annotations     |
-| JSF                 | Thymeleaf OR SPA frontend  | No direct equivalent; recommend new frontend       |
-| CDI (`@Inject`)     | Spring Dependency Injection| Use `@Autowired`/constructor injection             |
-| EJB (`@Stateless`)  | `@Service`/`@Transactional`| Use plain Service classes (transactions rarely used for Mongo) |
-| Arquillian/JUnit    | Spring Boot Test/JUnit5    | Use Spring Boot testing tools & embedded Mongo     |
-
----
-
-## Migration Cheat-Sheet
-
-1. Set up a new Spring Boot project with MongoDB.
-2. Port your business model (entities) as MongoDB Documents.
-3. Port repositories to extend Spring Data MongoDB Repositories.
-4. Port service classes, replacing EJBs.
-5. Replace REST endpoints with `@RestController`.
-6. Drop all JSF and JavaEE configs—replace (if needed) with a new UI.
-7. Configure MongoDB connection in `application.yml`.
-8. Use CommandLineRunner or other initializers for DB indexes and seed data.
-9. Remove all JBoss, Weld, persistence, and faces config files.
-10. Refactor and port tests to Spring Boot Test with embedded Mongo.
-
----
-
-**You can further script or automate certain portions of this process via your Python migration tool, using the steps and explanations above as content for the generated README.**
-
-## Suggested MongoDB Schema
-
-```markdown
-# kitchensink: Migration Plan to Spring Boot & MongoDB
 
 ## Overview
 
-This document details the migration plan for the kitchensink Jakarta EE/JBoss application (currently using JPA/Hibernate/H2/Relational DB) to a modern Spring Boot (Java 21) application using MongoDB as the data store. It covers:
-
-- Mapping the current data model to MongoDB schema
-- Refactoring steps needed in Java codebase
-- MongoDB schema, indexing, and initialization
-- Embedded vs. referenced data models for MongoDB
-- Data transformation requirements
-- Spring Boot & MongoDB dependencies
-- Recommendations and implementation order
-- Testing and validation
+- **Original Stack**: Java EE (Jakarta EE) on JBoss, JSF, JPA/Hibernate (RDBMS), EJB, JAX-RS.
+- **New Stack**: Spring Boot 3.x/Java 21, Spring Web, Spring Data MongoDB, REST controllers, no EJB/CDI, and MongoDB as backend.
+- **Primary Domain Model**: `Member` entity with fields `id`, `name`, `email`, `phoneNumber`.
 
 ---
 
-## 1. Current Application Data Model & Key Code
+## 1. Key Java Artifacts to Change
 
-**Entity: `Member`**
-- Fields: `id`, `name`, `email`, `phoneNumber`
-- Unique constraint: `email`
-- JPA/Hibernate annotations for entity management
-- Used in MemberController, REST endpoints, repository/services
+### You will need to create or modify the following Java files:
 
-**Repository Layer:**
-- `MemberRepository` uses JPA's EntityManager for CRUD and queries
-- Used to query by email, id, retrieve all ordered by name
-
-**Business Logic:**
-- `MemberRegistration` uses EntityManager to persist Member
-
-**REST Layer:**
-- `/rest/members` endpoint provides CRUD and list ops
-
-**SQL Structure (`import.sql`):**
-- Table: Member (`id: Long`, `name: String`, `email: String`, `phoneNumber: String`)
-- email: unique
+| Old Layer                              | New Spring Boot Artifacts            | Main Change                                          |
+|---------------------------------------- |--------------------------------------|------------------------------------------------------|
+| `Member.java` (JPA Entity)              | `Member.java` (Spring's @Document)   | Use Spring Data/Mongo annotations                    |
+| `MemberRepository.java` (JPA repo)      | `MemberRepository.java` (Mongo repo) | Extend `MongoRepository`; update queries             |
+| `MemberRegistration.java` (EJB)         | `MemberService.java`                 | Service class, remove EJB, use Spring @Service       |
+| `MemberController.java`, REST endpoints | `MemberRestController.java`          | Spring @RestController replaces JAX-RS endpoints     |
+| JPA configuration, persistence.xml      | Spring application.yml/properties    | Mongo properties, remove JPA                         |
+| Test classes (Arquillian, etc.)         | JUnit/SpringBootTest                 | Use embedded Mongo for integration testing           |
 
 ---
 
-## 2. Migration Plan Overview
+## 2. MongoDB Schema Design
 
-- Replace JPA/Hibernate layer with Spring Data MongoDB repositories
-- Refactor domain to use MongoDB document mapping (`@Document`)
-- Replace H2/Relational logic with MongoTemplate/MongoRepository
-- Adjust persistence configuration and property files for MongoDB
-- Ensure unique constraints & validation are handled
-- Amend REST/resource layers to call MongoDB repository
-- Provide MongoDB collection initialization/seed script for testing
+### Document Structures
 
----
+**Original Relational Table (Member):**
 
-## 3. **Files & Code to Update/Replace**
+| id (PK) | name  | email (unique)         | phone_number  |
+|---------|-------|------------------------|---------------|
+| 0       | John Smith | john.smith@mailinator.com | 2125551212  |
+| ...     | ...   | ...                    | ...           |
 
-**Java Source:**
+#### MongoDB Document (`members` collection)
 
-| Old File/Class                        | Replace/Rewrite as                                                       |
-|---------------------------------------|--------------------------------------------------------------------------|
-| src/main/java/org/.../Member.java     | Add `@Document`, adjust id type, update validation as POJO               |
-| MemberRepository.java                 | Replace JPA repo with Spring Data `MemberRepository extends MongoRepository` |
-| MemberRegistration.java               | Use MongoRepository for persistence                                      |
-| Controller/REST Service Layer         | Minor: update dependency injection/use MongoDB-backed repo               |
-| persistence.xml, XML config           | Remove, replace with application.properties for Mongo                     |
-| Resources.java                        | Remove EntityManager/JPA logic                                           |
-| Test Files (Integration Tests)        | Adapt to use MongoDB (`@DataMongoTest` etc.)                             |
-
-**Configuration:**
-
-| Old File                             | Replace with                 |
-|--------------------------------------|------------------------------|
-| persistence.xml, datasources.xml     | application.properties for MongoDB host, DB, etc.|
-| import.sql                           | MongoDB JSON seed script or Java @PostConstruct  |
-
----
-
-## 4. MongoDB Schema Design
-
-### **4.1. Recommended MongoDB Collection Schema**
-
-#### 1. **Collection: `members`**
-
-Sample Document:
 ```json
 {
   "_id": ObjectId("..."),
@@ -389,145 +394,147 @@ Sample Document:
 }
 ```
 
-- `email`: must be unique (MongoDB unique index)
-- `phoneNumber`: string, validation can be done at application level
-- No need for references/embedding — this collection is self-contained
+- `id` : Use MongoDB’s automatic `_id` (`ObjectId`), or map to a Long/int if you need migration compatibility.
+- `name`, `email`, `phoneNumber` : Same fields.
+- **Note:** Unique constraint on `email`.
 
-#### 2. **Java Domain (`Member.java`)**
+**No other relational entities or relationships exist, so a straightforward mapping is possible.**
 
-- Annotate with `@Document(collection = "members")`
-- Use `@Id` from Spring Data, which maps to MongoDB’s `_id` (can use `String` or `ObjectId`)
-- Use validation annotations (`@Email`, `@NotEmpty`, etc.) as before
-
-#### 3. **MongoRepository**
+#### Example: `Member.java` (Spring Style)
 
 ```java
+import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.core.mapping.Document;
+import jakarta.validation.constraints.*;
+
+@Document(collection = "members")
+public class Member {
+    @Id
+    private String id; // usually String for MongoDB's ObjectId
+
+    @NotNull
+    @Size(min = 1, max = 25)
+    @Pattern(regexp = "[^0-9]*", message = "Must not contain numbers")
+    private String name;
+
+    @NotNull
+    @Email
+    private String email;
+
+    @NotNull
+    @Size(min = 10, max = 12)
+    @Pattern(regexp = "\\d{10,12}") // or use @Digits, but for strings use regex
+    private String phoneNumber;
+
+    // getters/setters
+}
+```
+
+---
+
+### Embedded vs. Referenced Documents
+
+- There are **no other tables** or relationships in the given code. Thus, **no need for embedding or referencing other documents**.
+- If future features require member sub-collections (e.g. addresses, orders), consider embedding small, tightly-linked collections; otherwise, use references.
+
+---
+
+### Indexing Recommendations
+
+- Ensure **unique index** on `email` field.
+- Add standard index on `name` **if you need to query frequently by name**.
+
+**Example (MongoDB shell):**
+```js
+db.members.createIndex({ email: 1 }, { unique: true });
+db.members.createIndex({ name: 1 });
+```
+For Spring Boot: You can use `@Indexed(unique=true)` on the `email` field.
+
+---
+
+### Data Transformation
+
+- **Primary transformation**: Each row of the RDBMS table becomes a JSON document.
+- Convert integer/long ids (if needed) to `ObjectId` string, or explicitly store external ids if required for compatibility.
+- Validate unique constraints during data migration.
+- Existing Bean Validation annotations can be retained (Spring Boot supports Jakarta Validation on incoming data).
+
+---
+
+## 3. Spring Boot Integration Steps
+
+### a. Domain/Entity
+
+- Move `Member.java` to `@Document` & use `@Id`.
+- Update field annotations as shown above.
+
+### b. Repository
+
+**Old:**
+```java
+public class MemberRepository {
+    // JPA's EntityManager
+}
+```
+
+**New:**
+```java
+import org.springframework.data.mongodb.repository.MongoRepository;
+
 public interface MemberRepository extends MongoRepository<Member, String> {
     Optional<Member> findByEmail(String email);
     List<Member> findAllByOrderByNameAsc();
 }
 ```
 
-#### 4. **Indexing**
+### c. Service Layer
 
-- Ensure unique index on `email`
-  ```java
-  @CompoundIndexes({
-    @CompoundIndex(name = "email_unique_idx", def = "{'email' : 1}", unique = true)
-  })
-  public class Member { ... }
-  ```
+- Create a `@Service` for business logic.
 
-#### 5. **Initialization Script**
+### d. Controller Layer
 
-For importing initial data:
-```json
-[
-  {
-    "name": "John Smith",
-    "email": "john.smith@mailinator.com",
-    "phoneNumber": "2125551212"
-  }
-]
+**Replace JAX-RS with Spring Boot's REST controller:**
+
+```java
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api/members")
+public class MemberRestController {
+    private final MemberService memberService;
+
+    @GetMapping
+    public List<Member> listAllMembers() { ... }
+
+    @GetMapping("/{id}")
+    public Member getMemberById(@PathVariable String id) { ... }
+
+    @PostMapping
+    public ResponseEntity<?> createMember(@RequestBody @Valid Member member) { ... }
+}
 ```
-Import with `mongoimport --db kitchensink --collection members --file init_members.json`
+- Handle unique email exceptions gracefully (HTTP 409 Conflict).
 
----
+### e. Configuration
 
-## 5. **Embedded vs. Referenced Docs**
+```yaml
+# application.yml
 
-No sub-entities to embed; all fields are simple and belong to the `Member` document. No separate collections/references needed.
-
----
-
-## 6. **Indexing Strategy**
-
-- Unique index on `"email"` (enforced both via MongoDB and in the repository/service)
-- Optionally, an index on `"name"` for search/sort performance
-
----
-
-## 7. **Configuration Changes**
-
-**Spring Boot `application.properties`:**
-```properties
-spring.data.mongodb.uri=mongodb://localhost:27017/kitchensink
-spring.data.mongodb.database=kitchensink
-# (Optional) server port, logging, etc
+spring:
+  data:
+    mongodb:
+      uri: mongodb://localhost:27017/kitchensinkdb
 ```
 
-Remove all JPA, Hibernate, and relational DB configs.
+- Remove JPA/Hibernate dependencies.
+- Add `spring-boot-starter-data-mongodb` and related dependencies.
 
 ---
 
-## 8. **Data Transformation Plan**
+## 4. MongoDB Dependencies
 
-- Export existing data (`Member`) from RDBMS to flat JSON for import into MongoDB.
-  - Convert column names to field names as per POJO
-  - Remove any surrogate keys if not needed or let MongoDB generate new `_id`
-  - Ensure "email" uniqueness
-
----
-
-## 9. **Implementation Steps (Detailed)**
-
-### **1. Setup Spring Boot Project**
-
-- Use [Spring Initializr](https://start.spring.io/):
-  - Dependencies: Spring Web, Spring Data MongoDB, Validation, (optionally Lombok)
-  - Set Java version to 21
-
-### **2. Copy & Refactor Domain**
-
-- Add `@Document("members")` to `Member`
-- Change id to `@Id String id` (or ObjectId)
-- Keep all necessary validation annotations
-
-### **3. Replace Repository Layer**
-
-- Implement Spring Data `MemberRepository extends MongoRepository<Member, String>`
-- Refactor custom JPA queries as MongoDB query methods
-
-### **4. Refactor Service Layer**
-
-- Replace direct use of EntityManager with `memberRepository.save(member);`
-- Adjust event mechanics if needed; for simple apps, repo save is enough
-
-### **5. Update REST/Controller Layer**
-
-- Change JAX-RS/Jakarta annotations to `@RestController`, `@GetMapping`, etc.
-- Inject repository/service as `@Autowired`
-- Adjust response handling to match Spring idioms
-
-### **6. Remove Legacy Java EE/JBoss/JPA Artifacts**
-
-- Delete/ignore persistence.xml, beans.xml, all JPA/Hibernate config
-- Remove DS XMLs
-
-### **7. Apply MongoDB Indexes**
-
-- In domain (`Member.java`) use `@CompoundIndex` or create indexes on startup
-- Optionally add an ApplicationRunner to ensure index creation
-
-### **8. Write MongoDB Seed Script**
-
-- Use `mongoimport`, or write a Spring `@Component` to preload data at startup
-
-### **9. Update Tests**
-
-- Replace Arquillian/JBoss tests with Spring Boot test classes
-- Use `@DataMongoTest` for repository, `@SpringBootTest` for integration tests
-- Use embedded MongoDB (Flapdoodle) for tests
-
-### **10. Update Build/Deployment Artifacts**
-
-- Use Maven with `spring-boot-starter-parent`
-- Remove JBoss profiles, old plugins
-
----
-
-## 10. **MongoDB Dependencies (Maven)**
-
+**Maven:**
 ```xml
 <dependency>
     <groupId>org.springframework.boot</groupId>
@@ -535,117 +542,107 @@ Remove all JPA, Hibernate, and relational DB configs.
 </dependency>
 <dependency>
     <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-web</artifactId>
+</dependency>
+<dependency>
+    <groupId>org.springframework.boot</groupId>
     <artifactId>spring-boot-starter-validation</artifactId>
 </dependency>
-<!-- Optional: Lombok, Web -->
+<!-- For testing: -->
+<dependency>
+    <groupId>de.flapdoodle.embed</groupId>
+    <artifactId>de.flapdoodle.embed.mongo</artifactId>
+    <scope>test</scope>
+</dependency>
 ```
 
 ---
 
-## 11. **Sample MongoDB Initialization Script**
+## 5. MongoDB Initialization Script
 
-**init_members.json**
-```json
-[
-  {
-    "name": "John Smith",
-    "email": "john.smith@mailinator.com",
-    "phoneNumber": "2125551212"
-  }
-]
+**On first run, MongoDB creates the collection automatically; for initial data (optional):**
+
+```js
+// init-members.js
+db = db.getSiblingDB('kitchensinkdb');
+db.members.insertOne({
+    name: "John Smith",
+    email: "john.smith@mailinator.com",
+    phoneNumber: "2125551212"
+});
 ```
-Import:
+**Apply with:**
 ```bash
-mongoimport --db kitchensink --collection members --file init_members.json --jsonArray
+mongo < init-members.js
 ```
 
-Or (in Spring Boot):
+Or for test/dev: use a Spring Boot `data.sql`-like initializer.
+
+---
+
+## 6. Testing Strategy
+
+**a. Unit & Integration Testing**
+
+- Use JUnit 5/Spring Boot's `@SpringBootTest` for controller/repository/service tests.
+- Use embedded MongoDB (`de.flapdoodle.embed.mongo`) for integration tests.
+
+**b. Example Test Skeleton:**
+
 ```java
-@Component
-public class DataSeeder implements CommandLineRunner {
-    @Autowired MemberRepository repo;
-    public void run(String... args) {
-        if (repo.count()==0) {
-            repo.save(new Member(null,"John Smith","john.smith@mailinator.com","2125551212"));
-        }
+@SpringBootTest
+@AutoConfigureDataMongo
+class MemberRepositoryTests {
+
+    @Autowired
+    MemberRepository repository;
+
+    @Test
+    void testSaveAndFind() {
+        Member m = new Member();
+        m.setName("Test User");
+        m.setEmail("test@example.com");
+        m.setPhoneNumber("1234567890");
+        repository.save(m);
+
+        Member found = repository.findByEmail("test@example.com").orElseThrow();
+        assertEquals("Test User", found.getName());
     }
 }
 ```
----
 
-## 12. **Testing Strategy**
+**c. REST API Testing**
 
-- Unit test: all repository methods (`findByEmail`, `findAllByOrderByNameAsc`)
-- Integration test: REST endpoints using MockMvc/RestTemplate
-- Use embedded MongoDB (`@DataMongoTest`)
-- Test email uniqueness — attempt duplicate, expect exception
-- Test validation (missing name/email/phoneNumber)
-- Test query result ordering
-- Test seed data load on startup
+- Use MockMvc for controller testing.
+- Test unique constraints, input validation, and REST API semantics.
 
 ---
 
-## 13. **Recommendations & Best Practices**
+## 7. Summary Table: Old vs. New
 
-- Keep the `members` collection flat unless more complex relations arise
-- Always enforce unique index on `email`
-- Handle domain validation at application level
-- Use DTOs to avoid exposing internal MongoDB document structure via REST
-- Use standard error handling for unique/validation errors (HTTP 409, 400)
-- Document which fields are indexed and why in README codebase
-
----
-
-## 14. **Summary Checklist**
-
-- [ ] Create Spring Boot project & switch all config to application.properties
-- [ ] Convert `Member` entity to Spring Data document
-- [ ] Replace all persistence layer code with MongoRepository
-- [ ] Apply unique index on email via annotation or startup code
-- [ ] Refactor controllers/services to use Spring MVC/Spring Data
-- [ ] Remove all JPA/Hibernate config
-- [ ] Provide MongoDB seed/init script for members
-- [ ] Update/build and test using embedded MongoDB
-- [ ] Document migration in README (this file!)
+| Aspect                | Old Stack (JBoss+JPA/RDBMS)   | New Stack (Spring Boot+MongoDB)         |
+|-----------------------|-------------------------------|-----------------------------------------|
+| Persistence           | JPA/Hibernate, SQL            | Spring Data MongoDB                     |
+| Entity                | `@Entity`                     | `@Document`                             |
+| Primary Key           | `@Id @GeneratedValue` (Long)  | `@Id` (String/ObjectId or external Long)|
+| Uniqueness            | DB Unique Constraint          | MongoDB Unique Index                    |
+| Relationships         | -                             | -                                       |
+| Queries               | JPQL/Criteria API             | Spring Data queries                     |
+| Deployment            | JBoss, WEB-INF configs        | Standalone Spring Boot                  |
+| REST                  | JAX-RS                        | @RestController                         |
+| Validation            | Bean Validation (Jakarta)     | Bean Validation (Jakarta, Spring)       |
+| Testing               | Arquillian/In-container       | JUnit + Embedded Mongo                  |
 
 ---
 
-## 15. **References**
+## Closing Notes and Further Reading
 
-- [Spring Data MongoDB Reference](https://docs.spring.io/spring-data/mongodb/docs/current/reference/html/)
-- [MongoDB Unique Indexes](https://www.mongodb.com/docs/manual/core/index-unique/)
-- [Spring Boot with MongoDB Guide](https://spring.io/guides/gs/accessing-data-mongodb/)
-
----
-
-## Appendix: Example Spring Boot Entity
-
-```java
-import org.springframework.data.annotation.Id;
-import org.springframework.data.mongodb.core.mapping.Document;
-import org.springframework.data.mongodb.core.index.CompoundIndex;
-import jakarta.validation.constraints.*;
-
-@Document("members")
-@CompoundIndex(name = "email_unique_idx", def = "{'email': 1}", unique = true)
-public class Member {
-    @Id
-    private String id;
-
-    @NotNull @Size(min = 1, max = 25)
-    private String name;
-
-    @NotNull @NotEmpty @Email
-    private String email;
-
-    @NotNull @Size(min = 10, max = 12)
-    @Pattern(regexp = "\\d{10,12}")
-    private String phoneNumber;
-    // getters/setters ...
-}
-```
+- If your data model becomes more complex, revisit MongoDB model for embedding/referencing.
+- Carefully review authorization, validation, and exception handling in your API.
+- **Consult Spring Data MongoDB documentation for advanced mapping/projected queries, validations, etc.**
 
 ---
 
-**Following these steps will result in a clean, efficient migration of the kitchensink application to a modern Spring Boot & MongoDB stack, ready for cloud-native use!**
+**Happy migration!**
+
 ```
