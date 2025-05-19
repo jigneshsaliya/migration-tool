@@ -9,6 +9,7 @@ load_dotenv(dotenv_path=dotenv_path)
 client = OpenAI(
     api_key=os.environ.get("OPENAI_API_KEY"),
 )
+
 summary, tree, content = ingest("code/kitchensink")
     
 def analyze_java_code() -> str:
