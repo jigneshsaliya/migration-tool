@@ -2,9 +2,7 @@ from openai import OpenAI
 from dotenv import load_dotenv
 from pathlib import Path
 import os
-import pandas as pd
 import numpy as np
-from scipy.spatial.distance import cosine
 import faiss
 import pickle
 import time
