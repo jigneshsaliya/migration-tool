@@ -1,3 +1,7 @@
 gitingest
 openai==1.68.2
 python-dotenv
+pandas
+scipy
+faiss-cpu
+numpy
