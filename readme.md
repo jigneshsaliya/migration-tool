@@ -93,4 +93,7 @@ This step involves a two-phase process using the OpenAI model:
 ![High Level Overview](image_1.png)
 
 # Video demo of enhancement
-![video demo](./migration_tool_demo.mp4)
+
+<figure class="video_container">
+  <iframe src="migration_tool_demo.mp4" frameborder="0" allowfullscreen="true"></iframe>
+</figure>
