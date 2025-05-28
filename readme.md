@@ -91,3 +91,6 @@ This step involves a two-phase process using the OpenAI model:
 # Below is the enhancement flow that I have implemented to create kind of like chat bot
 
 ![High Level Overview](image_1.png)
+
+# Video demo of enhancement
+![video demo](./migration_tool_demo.mp4)
