@@ -88,4 +88,6 @@ This step involves a two-phase process using the OpenAI model:
 - If the code repository is big then this approach might not work as I need think about some other alternative to upload this code in to some vector or other DB which LLM can pull run time. 
 - I can create kind of chatbot using Streamlit api and can make intereactive chat bot using nice UI design etc.
 
+# Below is the enhancement flow that I have implemented to create kind of like chat bot
 
+![High Level Overview](image_1.png)
