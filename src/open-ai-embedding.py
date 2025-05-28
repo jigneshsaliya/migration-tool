@@ -225,12 +225,18 @@ def answer_question(query):
         
         # Prepare the prompt for GPT
         prompt = f"""You are an expert software engineer.
-Based on the following code context, answer the question.
+        Based on the following code context, answer the question.
+        
+        Context:
+        {context}
 
-Context:
-{context}
-
-Question: {query}"""
+        Question: {query}
+        
+        # Keep below thing in mind while answering the question:
+        - Your final output should always be a concise answer to the question.
+        - Also provide the relevant code snippets if necessary.
+        - Generate the final a concise answer in markdown format.
+        """
 
         print("Sending question to GPT...")
         
@@ -252,57 +258,64 @@ def interactive_search():
     Start an interactive search session where the user can input queries
     and get related content from the embedded files using FAISS.
     """
-    print("\n===== Interactive Code Search with FAISS =====")
-    print("Enter your query about the codebase, or type 'quit' to exit.")
-    print("To ask for AI assistance with a question, start your query with '?'")
+    # ANSI color codes
+    YELLOW = "\033[93m"  # Yellow
+    GREEN = "\033[92m"   # Green
+    CYAN = "\033[96m"    # Cyan
+    BOLD = "\033[1m"     # Bold
+    RESET = "\033[0m"    # Reset all formatting
+    
+    print(f"\n{BOLD}{CYAN}===== Interactive Code Search with FAISS ====={RESET}")
+    print(f"{GREEN}Enter your query about the codebase, or type 'quit' to exit.{RESET}")
+    print(f"{GREEN}To ask for AI assistance with a question, start your query with '?'{RESET}")
     
     while True:
-        query = input("\nYour query: ")
+        query = input(f"\n{YELLOW}Your query:{RESET} ")
         
         if query.lower() in ['quit', 'exit', 'q']:
-            print("Exiting search. Goodbye!")
+            print(f"{GREEN}{BOLD}Exiting search. Goodbye!{RESET}")
             break
         
         if not query.strip():
-            print("Please enter a valid query.")
+            print(f"{YELLOW}Please enter a valid query.{RESET}")
             continue
             
         # Check if the user is asking a question (starts with ?)
         if query.strip().startswith('?'):
             question = query.strip()[1:].strip()  # Remove the ? and any leading/trailing whitespace
             if not question:
-                print("Please provide a question after '?'")
+                print(f"{YELLOW}Please provide a question after '?'{RESET}")
                 continue
                 
-            print("\nAnalyzing code and answering your question...")
+            print(f"\n{YELLOW}Analyzing code and answering your question...{RESET}")
             start_time = time.time()
             answer = answer_question(question)
             answer_time = time.time() - start_time
             
-            print(f"\n----- Answer (generated in {answer_time:.2f} seconds) -----")
+            print(f"\n{YELLOW}----- Answer (generated in {answer_time:.2f} seconds) -----{RESET}")
             print(answer)
-            print("\n" + "-" * 50)
+            print(f"\n{YELLOW}" + "-" * 50 + f"{RESET}")
             continue
         
         # Regular code search
-        print("\nSearching for relevant code snippets...")
+        print(f"\n{YELLOW}Searching for relevant code snippets...{RESET}")
         start_time = time.time()
         results = search_similar_chunks(query, top_k=3)
         search_time = time.time() - start_time
         
         if not results:
-            print("No relevant results found. Try a different query.")
+            print(f"{YELLOW}No relevant results found. Try a different query.{RESET}")
             continue
         
-        print(f"\n----- Search Results (found in {search_time:.2f} seconds) -----")
+        print(f"\n{YELLOW}----- Search Results (found in {search_time:.2f} seconds) -----{RESET}")
         
         for i, result in enumerate(results):
             chunk_id = result['chunk_id']
             similarity = result['similarity']
             text = result['text']
             
-            print(f"\nResult {i+1} (Similarity: {similarity:.2f})")
-            print("-" * 50)
+            print(f"\n{YELLOW}Result {i+1} (Similarity: {similarity:.2f}){RESET}")
+            print(f"{YELLOW}" + "-" * 50 + f"{RESET}")
             
             # Show a preview (first 300 characters)
             preview_length = 300
@@ -310,7 +323,7 @@ def interactive_search():
             print(preview)
             
             # Ask if user wants to see full content
-            see_more = input("\nSee full content? (y/n): ")
+            see_more = input(f"\n{YELLOW}See full content? (y/n):{RESET} ")
             if see_more.lower() in ['y', 'yes']:
                 print("\n" + "=" * 30 + " FULL CONTENT " + "=" * 30)
                 print(text)
@@ -319,17 +332,24 @@ def interactive_search():
         print("\n" + "-" * 50)
 
 if __name__ == "__main__":
+    # ANSI color codes
+    YELLOW = "\033[93m"  # Yellow
+    GREEN = "\033[92m"   # Green
+    CYAN = "\033[96m"    # Cyan
+    BOLD = "\033[1m"     # Bold
+    RESET = "\033[0m"    # Reset all formatting
+    
     # Check if the FAISS index exists
     output_dir = "src/code_folder/embedding"
     index_path = f"{output_dir}/content.index"
     
     if not os.path.exists(index_path):
-        print("FAISS index not found. Creating embeddings and index...")
+        print(f"{YELLOW}{BOLD}FAISS index not found. Creating embeddings and index...{RESET}")
         success = process_content_file()
         
         if not success:
-            print("Failed to create FAISS index. Please check the errors above.")
+            print(f"{YELLOW}{BOLD}Failed to create FAISS index. Please check the errors above.{RESET}")
             exit(1)
     
-    print("Starting interactive search...")
+    print(f"\n{CYAN}{BOLD}Starting interactive search...{RESET}")
     interactive_search()
